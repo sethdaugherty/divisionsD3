@@ -1,0 +1,235 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+
+html, body {
+  margin: 0; padding: 0;
+}
+
+circle {
+  stroke-width: 0;
+  fill-opacity: 0.5;
+}
+
+svg {
+    margin: auto;
+}
+
+</style>
+<script src="d3.v3.min.js" charset="utf-8"></script>
+
+</head>
+<body>
+<div style="width: 100%; height: 100%" id="wrapper" width="100%" height="100%">
+<canvas id="viewport" style="display:none; width: 100%; height: 100%"></canvas>
+</div>
+<script>
+var url = "rembrandt3.jpg";
+
+var canvas = document.getElementById("viewport");
+
+var wrapper = document.getElementById("wrapper");
+
+var w = window.innerWidth;
+var h = window.innerHeight;
+
+var context = canvas.getContext("2d");
+
+img = new Image();
+img.src = url;
+img.onload = function() {
+	var imgRatio = img.width / img.height;
+	h = w/imgRatio;
+	
+	canvas.width = w;
+	canvas.height = h;
+
+    context.drawImage(img, 0, 0, w, h);
+    // returns array with length pixels * 4, each pixel has r g b and a
+    var data = context.getImageData(0, 0, w, h).data;
+	
+	var data2d = convertDataTo2d(data, w, h);
+
+	var numSquaresWide = 3;
+	var initialSquareSize = Math.floor(w/numSquaresWide);
+	var numSquaresHigh = Math.floor(h/initialSquareSize);
+	
+	var squaresData = createInitialSquares(data2d, initialSquareSize, numSquaresWide, numSquaresHigh, context);
+	var svg = d3.select("body").append("svg")
+	    .style("background", "#fff")
+        .attr("width", w)
+        .attr("height", h);
+		
+	drawSquares(svg, squaresData, data2d);
+};
+
+var drawSquares = function(svg, squaresData, data2d) {
+	var squares = svg.selectAll("rect")
+		.data(squaresData);
+	
+	squares.enter().append("rect")
+			.style("fill", function(d) { return d.color; })
+			.attr("x", function(d) { return d.x; })
+			.attr("y", function(d) { return d.y; })
+			.attr("width", function(d) { return d.width; })
+			.attr("height", function(d) { return d.width; })
+			
+		.on("mouseover", function(x, i) { 
+			splitSquare(data2d, squaresData, i); 
+			drawSquares(svg, squaresData, data2d);
+		});
+			
+	squares.exit()
+		.remove();
+	
+};
+
+var splitSquare = function(data2d, squaresData, index) {
+	var square = squaresData[index];
+	
+	if (square.width <= 1) {
+		return;
+	}
+	
+	var numSplits = 4;
+	var x = square.x;
+	var y = square.y;
+	var newWidth = Math.ceil(square.width / numSplits);
+	
+	var xOffset = 0;
+	var yOffset = 0;
+	for (var i=0; i < numSplits; i++) {
+		xOffset = 0;
+		for (var j=0; j < numSplits; j++) {
+			var color = rgb
+			(
+				computeAverageForArea(data2d.red, newWidth, newWidth, y + yOffset, x + xOffset),
+				computeAverageForArea(data2d.green, newWidth, newWidth, y + yOffset, x + xOffset),
+				computeAverageForArea(data2d.blue, newWidth, newWidth, y + yOffset, x + xOffset)
+			);
+			
+			squaresData.push
+			(
+				{
+					'width' : newWidth,
+					'x' : x + xOffset, 
+					'y' : y + yOffset,
+					'color' : color
+				}
+			);
+			xOffset += newWidth;
+		}
+		yOffset += newWidth;
+	}
+	
+	delete squaresData[index];	
+};
+
+var createInitialSquares = function(data2d, width, xCount, yCount, context) {
+	var x = 0;
+	var y = 0;
+	
+	var squaresData = [];
+
+	for (var j = 0; j < yCount; j++) 
+	{
+		x = 0;
+		for (var i = 0; i < xCount; i++)
+		{
+			color = rgb
+			(
+				computeAverageForArea(data2d.red, width, width, y, x),
+				computeAverageForArea(data2d.green, width, width, y, x),
+				computeAverageForArea(data2d.blue, width, width, y, x)
+			);
+			squaresData.push
+			(
+				{
+					'width' : width,
+					'x' : x, 
+					'y' : y,
+					'color' : color
+				}	
+			);
+			
+			x += width;
+		}
+		
+		y += width;
+	}
+	
+	return squaresData;
+};
+
+var drawSquare = function(width, x, y, color, context) {
+	context.fillStyle = color;
+    context.fillRect(x, y, width, width);
+};
+
+var rgb = function(r, g, b) {
+  return "rgb("+Math.floor(r)+","+Math.floor(g)+","+Math.floor(b)+")";
+};
+
+var convertDataTo2d = function(dataArray, w, h) {
+	var redArray = [];
+	var greenArray = [];
+	var blueArray = [];
+
+	var red2dArray = [];
+	var green2dArray = [];
+	var blue2dArray = [];
+	
+	for (var i=0; i<=dataArray.length; i+=4)
+	{
+		if (i % (w*4) == 0 && i != 0)
+		{
+			red2dArray.push(redArray);
+			redArray = [];
+			blue2dArray.push(blueArray);
+			blueArray = [];
+			green2dArray.push(greenArray);
+			greenArray = [];
+		}
+		redArray.push(dataArray[i]);
+		greenArray.push(dataArray[i+1]);
+		blueArray.push(dataArray[i+2]);
+	}
+	return {
+		'red' : red2dArray,
+		'green' : green2dArray,
+		'blue' : blue2dArray
+	};
+};
+
+var computeAverageForArea = function(data2dArray, width, height, x, y) {
+	var count = 0;
+	var sum = 0;
+	
+	for (var i=0; i < height; i++) {
+		for (var j=0; j < width; j++) {
+			if ( x+i in data2dArray)
+			{
+				if (y+j in data2dArray[x+i]) 
+				{
+					sum += data2dArray[x+i][y+j];
+					count++;
+				}
+			}
+		}
+
+	}
+	
+	if (count == 0) {
+		return 0;
+	}
+	
+	return sum/count;
+};
+
+</script>
+</body>
+</html>
+
